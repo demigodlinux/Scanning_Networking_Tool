@@ -1,0 +1,7 @@
+#include "arrow.h"
+#include "kali_logo.h"
+#include "loading.h"
+#include "strongWifi.h"
+#include "weakWifi.h"
+#include "noBattery.h"
+#include "menu_background.h"
