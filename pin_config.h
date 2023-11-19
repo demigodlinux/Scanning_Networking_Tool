@@ -29,3 +29,8 @@
 
 #define PIN_TOUCH_INT                16
 #define PIN_TOUCH_RES                21
+
+#define MISO                         13
+#define MOSI                         11
+#define SCK                          12
+#define CS                           10

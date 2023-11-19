@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 File Server</title>
+    <!-- Add this line in the head section of your HTML -->
+    <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            border: 1px solid #dddddd;
+            text-align: left;
+            padding: 8px;
+        }
+
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        .upload-container {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .upload-label {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .upload-button {
+            margin-top: 10px;
+            background-color: #008CBA;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .upload-button:hover {
+            background-color: #005F80;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 5px;
+        }
+
+        .download-button, .reupload-button, .delete-button {
+            padding: 5px 10px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+
+        .reupload-button, .delete-button {
+            background-color: #008CBA;
+        }
+
+        .delete-button {
+            background-color: #f44336;
+        }
+
+        /* Dialog box styles */
+        .dialog {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px;
+            background-color: #fff;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            z-index: 999;
+        }
+
+        .dialog p {
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>ESP32 File Server</h1>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>File Name</th>
+                <th>File Size (bytes)</th>
+                <th>Created Date</th>
+                <th>File Type</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="fileList">
+        </tbody>
+    </table>
+
+    <div class="upload-container">
+        <label for="fileInput" class="upload-label">Select File</label>
+        <input type="file" name="file" id="fileInput" onchange="displaySelectedFile()" required>
+        <button type="submit" class="upload-button" onclick="uploadFile()">Upload</button>
+    </div>
+
+    <!-- Dialog box for upload process -->
+    <div class="dialog" id="uploadDialog">
+        <p>Uploading...</p>
+    </div>
+
+    <script>
+        function displayFileList(files) {
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = '';
+
+            files.forEach(file => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${file}</td>
+                    <td class="action-buttons">
+                        <button class="download-button" onclick="downloadFile('${file}')">Download</button>
+                        <button class="reupload-button" onclick="reuploadFile('${file}')">Reupload</button>
+                        <button class="delete-button" onclick="deleteFile('${file}')">Delete</button>
+                    </td>
+                `;
+                fileList.appendChild(row);
+            });
+        }
+
+        // Fetch file list from the server using JavaScript
+        function fetchFileList() {
+            fetch('./read_files.php')
+                .then(response => response.json())
+                .then(files => {
+                    displayFileList(files);
+                })
+                .catch(error => console.error('Error fetching file list:', error));
+        }
+
+        // Call fetchFileList initially to load the file list
+        fetchFileList();
+
+        // Display selected file name
+        function displaySelectedFile() {
+            const fileInput = document.getElementById('fileInput');
+            const selectedFile = fileInput.files[0].name;
+            alert(`Selected file: ${selectedFile}`);
+        }
+
+        // Show upload dialog
+        function showUploadDialog() {
+            const uploadDialog = document.getElementById('uploadDialog');
+            uploadDialog.style.display = 'block';
+        }
+
+        // Hide upload dialog
+        function hideUploadDialog() {
+            const uploadDialog = document.getElementById('uploadDialog');
+            uploadDialog.style.display = 'none';
+        }
+
+        // Upload file function
+        function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            // Show upload dialog during the process
+            showUploadDialog();
+
+            fetch('./Uploads', {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => {
+                    // Hide the dialog after the upload is complete
+                    hideUploadDialog();
+
+                    if (response.ok) {
+                        console.log('File uploaded successfully');
+                        // After uploading, refresh the file list
+                        fetchFileList();
+                    } else {
+                        console.error('File upload failed');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error uploading file:', error);
+                    // Hide the dialog in case of an error
+                    hideUploadDialog();
+                });
+        }
+
+        // Implement download, reupload, and delete functions as needed
+        function downloadFile(fileName) {
+            console.log('Download:', fileName);
+            // Implement download logic as needed
+        }
+
+        function reuploadFile(fileName) {
+            console.log('Reupload:', fileName);
+            // Implement reupload logic as needed
+        }
+
+        function deleteFile(fileName) {
+            console.log('Delete:', fileName);
+            // Implement delete logic as needed
+        }
+    </script>
+</body>
+</html>

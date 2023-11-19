@@ -5,7 +5,11 @@
 #include "WiFi.h"
 #include "time.h"
 #include "Objects.h"
-
+#include <AsyncTCP.h>
+#include <ESPAsyncWebSrv.h>
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
 
 TFT_eSPI tft;
 
@@ -20,17 +24,19 @@ TFT_eSprite timeSprite(&tft);
 TFT_eSprite dateSprite(&tft);
 TFT_eSprite loaderSprite(&tft);
 
+AsyncWebServer server(80);
+
 Button2 down_Button(1);
 Button2 up_Button(3);
 Button2 select_Button(2);
-Button2 menu_Button(10);
+Button2 menu_Button(21);
 
 const int numOptionsPerPage = 3;
 const int daylightOffset_sec = 3600;
 const int selectedNumOptionsPerPage = 4;
 
-const char *optionsPage1[] = {"Scan Wi-Fi", "Enable AP", "Deauth Atck", "Auth Atck"};
-const char *optionsPage2[numOptionsPerPage] = {"Option 1b", "Option 2b", "Option 3b"};
+const char *optionsPage1[4] = {"Scan Wi-Fi", "Enable AP", "Deauth Atck", "Auth Atck"};
+const char *optionsPage2[3] = {"Option 1b", "Option 2b", "Option 3b"};
 const char *monthNames[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 const char *ntpServer = "pool.ntp.org";
 const char *networkList[10] = {};
@@ -44,11 +50,26 @@ int selectedCurrentOption = 0;
 int selectedTotalPages = 2;
 int selectedCurrentPage = 1;
 int totalNetworksFound = 0;
+int sizeOfArray = 0;
+int innerOptionIndexSelected = 0;
+
 
 String resultTime;
 String resultDate;
-String optionHovered;
-String selectedOption;
+String optionHovered = "";
+String selectedOption = "";
+String selectedInnerOption = "";
+String innerOptionHovered = "";
+
+// Variable to store the HTTP request
+String header;
+
+// Current time
+unsigned long currentTime = millis();
+// Previous time
+unsigned long previousTime = 0; 
+// Define timeout time in milliseconds (example: 2000ms = 2s)
+const long timeoutTime = 2000;
 
 void setup() {
     pinMode(PIN_POWER_ON, OUTPUT);
@@ -109,15 +130,32 @@ void setup() {
     menu_Button.setPressedHandler([](Button2& btn) {
         menuButtonPressed();
     });
+
     selectedOptionToDisplay(); 
+
+    initSDCard();
+
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(SD, "/index.html", "text/html");
+    });
+
+    server.serveStatic("/", SD, "/");
+
+    server.begin();
+
+    Serial.println("");
+    Serial.println("WiFi connected.");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+    server.begin();
 }
+
 
 void selectedOptionToDisplay(){
   if(selectedOption.isEmpty() == true){
     if(down_Button.isPressed() == true){nextOption();}
     if(up_Button.isPressed() == true){prevOption();}
-    mainMenu(); 
-    displayTaskBar();
+    mainScreen();
   }
   else if(strcmp(selectedOption.c_str(), "Scan Wi-Fi") == 0){
     if(down_Button.isPressed() == true){selectedNextOption();}
@@ -129,6 +167,10 @@ void selectedOptionToDisplay(){
 void menuButtonPressed(){
   optionHovered = "";
   selectedOption = "";
+  selectedInnerOption = "";
+  innerOptionHovered = "";
+  innerOptionIndexSelected = 0;
+  selectedCurrentOption = 0;
   selectedOptionToDisplay();
 }
 
@@ -138,6 +180,11 @@ void loop() {
     down_Button.loop();
     select_Button.loop();
     backgroundSprite.pushSprite(0, 0);
+}
+
+void mainScreen(){
+    mainMenu(); 
+    displayTaskBar();
 }
 
 void displayTaskBar(){
@@ -163,20 +210,28 @@ void wifi_symbol() {
 }
 
 void selectedMenuOptions() {
-    Serial.println("Select button pressed");
     selectedOption = optionHovered;
-    Serial.println(selectedOption);
-
+    selectedInnerOption = innerOptionHovered;
     if (strcmp(selectedOption.c_str(), "Scan Wi-Fi") == 0) {
-        scanWifi();
-    } else {
+        if(strcmp(selectedInnerOption.c_str(), "") == 0){
+          scanWifi();
+        }
+        else if(strcmp(selectedInnerOption.c_str(), WiFi.SSID(innerOptionIndexSelected).c_str()) == 0){
+          displayWifiDetails();
+        }
+    } 
+    else if(strcmp(selectedOption.c_str(), "Enable AP") == 0){
+        enableAP();
+    }
+    else {
         Serial.println("Build in progress");
         // Your code for Option 2
     }
 }
 
 void nextOption() {
-    currentOption = (currentOption + 1) % numOptionsPerPage;
+    int pageListOptions = sizeOfArray <= numOptionsPerPage ? numOptionsPerPage : sizeOfArray;
+    currentOption = (currentOption + 1) % pageListOptions;
 
     if (currentOption == 0) {
         currentPage = (currentPage % totalPages) + 1;
@@ -192,17 +247,15 @@ void selectedNextOption() {
     if (currentOption == 0) {
         selectedCurrentPage = (selectedCurrentPage % selectedTotalPages) + 1;
     }
-    Serial.println(selectedPages);
-    Serial.println(selectedCurrentPage);
-    Serial.println(selectedCurrentOption);
-    Serial.println(selectedTotalPages);
 }
 
 void prevOption() {
+  int pageListOptions = sizeOfArray <= numOptionsPerPage ? numOptionsPerPage : sizeOfArray;
+  Serial.println(pageListOptions);
     if (currentPage > 1 || currentOption > 0) {
-        currentOption = (currentOption - 1 + numOptionsPerPage) % numOptionsPerPage;
+        currentOption = (currentOption - 1 + pageListOptions) % pageListOptions;
 
-        if (currentOption == numOptionsPerPage - 1 && currentPage > 1) {
+        if (currentOption == pageListOptions - 1 && currentPage > 1) {
             currentPage = (currentPage - 1 + totalPages) % totalPages;
         }
     }
@@ -219,10 +272,6 @@ void selectedPrevOption() {
             selectedCurrentPage = (selectedCurrentPage - 1 + selectedTotalPages) % selectedTotalPages;
         }
     }
-    Serial.println(selectedPages);
-    Serial.println(selectedCurrentPage);
-    Serial.println(selectedCurrentOption);
-    Serial.println(selectedTotalPages);
 }
 
 
@@ -234,24 +283,35 @@ void mainMenu() {
     textSprite.setTextColor(TFT_WHITE, TFT_BLACK);
 
     if (currentPage == 1) {
+      Serial.println("Page 1");
         textSprite.drawString("Wi-Fi:", 0, 0, 4);
         textSprite.pushToSprite(&backgroundSprite, 10, 35, TFT_BLACK);
-        drawOptions(optionsPage1);
+        sizeOfArray = sizeof(optionsPage1)/sizeof(optionsPage1[0]);
+        drawOptions(optionsPage1, sizeOfArray);
         // int arrayLength = sizeof(optionsPage1) / sizeof(optionsPage1[0]);
         // Serial.println(arrayLength);
     } else if (currentPage == 2) {
+      Serial.println("Page 2");
         textSprite.drawString("BLTE:", 0, 0, 4);
         textSprite.pushToSprite(&backgroundSprite, 10, 35, TFT_BLACK);
-        drawOptions(optionsPage2);
+        sizeOfArray = sizeof(optionsPage2)/sizeof(optionsPage2[0]);
+        drawOptions(optionsPage2, sizeOfArray);
     }
 }
 
-void drawOptions(const char **options) {
-    for (int i = 0; i < numOptionsPerPage; ++i) {
-        int y = 70 + i * 30;
-        textSprite.fillSprite(TFT_BLACK);
+void drawOptions(const char **options, int size) {
+  int pageListOptions = size <= numOptionsPerPage ? numOptionsPerPage : size;
 
-        if (i == currentOption) {
+  Serial.println(size);
+  Serial.println(pageListOptions);
+  
+    for (int i = 0; i < pageListOptions; ++i) {
+      textSprite.fillSprite(TFT_BLACK);
+
+        if(i < numOptionsPerPage){
+          Serial.println("First Column");
+          int y = 70 + i * 30;
+          if (i == currentOption) {
             textSprite.setTextColor(TFT_CYAN, TFT_BLACK);
             arrowSprite.pushImage(0, 0, 16, 16, arrowicons8_arrow_16);
             arrowSprite.pushToSprite(&backgroundSprite, 5, y, TFT_BLACK);
@@ -265,7 +325,29 @@ void drawOptions(const char **options) {
         textSprite.drawString(options[i], 0, 0, 1);
         textSprite.pushToSprite(&backgroundSprite, 26, y, TFT_BLACK);
         textSprite.setFreeFont(NULL);
-    }
+        }
+        else{
+          Serial.println("Second Column");
+          int j = 0;
+          int y = 35 + j * 30;
+          if (i == currentOption) {
+            textSprite.setTextColor(TFT_CYAN, TFT_BLACK);
+            arrowSprite.pushImage(0, 0, 16, 16, arrowicons8_arrow_16);
+            arrowSprite.pushToSprite(&backgroundSprite, 165, y, TFT_BLACK);
+            optionHovered = (String)options[i];
+        } else {
+            textSprite.setTextColor(TFT_WHITE, TFT_BLACK);
+        }
+
+        textSprite.setTextSize(1);
+        textSprite.setFreeFont(&FreeSans9pt7b);
+        textSprite.drawString(options[i], 0, 0, 1);
+        textSprite.pushToSprite(&backgroundSprite, 186, y, TFT_BLACK);
+        textSprite.setFreeFont(NULL);
+        j += 1 ;
+
+        }
+      }
 }
 
 void scanWifi() {
@@ -339,6 +421,8 @@ void displayScannedNetworks(int n){
             textSprite.setTextColor(TFT_CYAN, TFT_BLACK);
             arrowSprite.pushImage(0, 0, 16, 16, arrowicons8_arrow_16);
             arrowSprite.pushToSprite(&backgroundSprite, 5, y, TFT_BLACK);
+            innerOptionHovered = WiFi.SSID(i);
+            innerOptionIndexSelected = i;
           } else {
             textSprite.setTextColor(TFT_WHITE, TFT_BLACK);
           }
@@ -348,11 +432,79 @@ void displayScannedNetworks(int n){
           textSprite.drawString(resultList.c_str(), 0, 0, 1);
           textSprite.pushToSprite(&backgroundSprite, 30, y, TFT_BLACK);
           textSprite.setFreeFont(NULL);
-
+   
           delay(10);
         }
     }
 }
+
+void displayWifiDetails(){
+  int n = innerOptionIndexSelected;
+  backgroundSprite.fillSprite(TFT_DARKGREY);
+
+  textSprite.setTextColor(TFT_GOLD, TFT_BLACK);
+  textSprite.fillSprite(TFT_BLACK);
+  textSprite.setTextSize(1);
+  textSprite.setFreeFont(&FreeSans9pt7b);
+  String resultList = (String)(n + 1) + ": " + WiFi.SSID(n) + " Str: (" + (WiFi.RSSI(n) > -70 ? "GOOD" : "FAIR") + ") " + ((WiFi.encryptionType(n) == WIFI_AUTH_OPEN) ? " " : "*");
+  textSprite.drawString(resultList.c_str(), 5, 5, 1);
+  textSprite.pushToSprite(&backgroundSprite, 0, 0, TFT_BLACK);
+
+  textSprite.setTextColor(TFT_WHITE, TFT_BLACK);
+  textSprite.fillSprite(TFT_BLACK);
+  textSprite.setTextSize(1);
+  textSprite.setFreeFont(&FreeSans9pt7b);
+
+  String BSSID = "MAC Addr: " + macAddressToString(WiFi.BSSID(n));
+  textSprite.drawString(BSSID.c_str(), 10, 40, 1);
+
+  String Channel = "Channel: " + (String)WiFi.channel(n);
+  textSprite.drawString(Channel.c_str(), 10, 65, 1);
+
+  String encryptType = "Encryp Type: " + getEncryptionType(WiFi.encryptionType(n));
+
+  textSprite.drawString(encryptType.c_str(), 10, 90, 1);
+
+  String RSSI = "Signal Str: " + (String)(WiFi.RSSI(n) > -70 ? "GOOD " : (WiFi.RSSI(n) < -70 && WiFi.RSSI(n) > -80 ? "FAIR " : "POOR ")) + "( " + (String)WiFi.RSSI(n) + " dBm )" ;
+
+  textSprite.drawString(RSSI.c_str(), 10, 115, 1);
+
+  textSprite.pushToSprite(&backgroundSprite, 0, 0, TFT_BLACK);
+  textSprite.setFreeFont(NULL);
+
+
+}
+
+void enableAP(){
+
+}
+
+void initSDCard(){
+  if(!SD.begin()){
+    Serial.println("Card Mount Failed");
+    return;
+  }
+  uint8_t cardType = SD.cardType();
+
+  if(cardType == CARD_NONE){
+    Serial.println("No SD card attached");
+    return;
+  }
+
+  Serial.print("SD Card Type: ");
+  if(cardType == CARD_MMC){
+    Serial.println("MMC");
+  } else if(cardType == CARD_SD){
+    Serial.println("SDSC");
+  } else if(cardType == CARD_SDHC){
+    Serial.println("SDHC");
+  } else {
+    Serial.println("UNKNOWN");
+  }
+  uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+  Serial.printf("SD Card Size: %lluMB\n", cardSize);
+}
+
 
 void printLocalTime() {
   if (WiFi.status() == WL_CONNECTED){
@@ -389,7 +541,6 @@ void printLocalTime() {
   }
 }
 
-
 uint16_t blendColors(uint16_t color1, uint16_t color2, uint8_t opacity) {
     uint8_t r1 = (color1 >> 11) & 0x1F;
     uint8_t g1 = (color1 >> 5) & 0x3F;
@@ -404,4 +555,29 @@ uint16_t blendColors(uint16_t color1, uint16_t color2, uint8_t opacity) {
     uint8_t b = ((b1 * (255 - opacity)) + (b2 * opacity)) / 255;
 
     return tft.color565(r, g, b);
+}
+
+String macAddressToString(const uint8_t* mac) {
+  char buf[18];
+  sprintf(buf, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  return String(buf);
+}
+
+String getEncryptionType(int encryptionType) {
+  switch (encryptionType) {
+    case 0:
+      return "OPEN";
+    case 1:
+      return "WEP";
+    case 2:
+      return "WPA";
+    case 3:
+      return "WPA2";
+    case 4:
+      return "WPA_WPA2";
+    case 5:
+      return "MAX";
+    default:
+      return "UNKNOWN";
+  }
 }
