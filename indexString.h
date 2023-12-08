@@ -1,3 +1,4 @@
+const char* htmlString = R"(
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -125,21 +126,62 @@
             // Get the file input element
             const fileInput = document.getElementById('fileInput');
 
-            // Create a FormData object
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
+            const fileExtension = fileInput.value.split('.').pop().toLowerCase();
 
-            // Make a fetch request to upload the file
-            fetch('/SaveFile', {
-                method: 'POST',
-                body: formData,
-                headers: customHeaders
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('Server response:', data);
-            })
-            .catch(error => console.error('Error:', error));
+            // Array of allowed extensions
+            const allowedExtensions = ['txt', 'html', 'json', 'js', 'css', 'xml'];
+
+            // Check if file has an allowed extension
+            if (!allowedExtensions.includes(fileExtension)) {
+                // If not, display an error message and stop the function
+                alert('Invalid file type. Please upload a .txt, .html, .json, .js, .css, or .xml file.');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const fileType = file.name.split('.')[1];
+            const fileData = {};
+            if (file) {
+              const reader = new FileReader();
+      
+              reader.onload = function (e) {
+                // The file content is available as a buffer in e.target.result
+                const buffer = e.target.result;
+                const buffArray = [];
+
+                const uint8Array = new Uint8Array(buffer);
+                for (let key in uint8Array){
+                  buffArray.push(uint8Array[key]);
+                }
+                // For example, convert the buffer to a string
+                const text = new TextDecoder().decode(buffer);
+                console.log('File content as text:', text);
+
+                // Create a FormData object
+                const formData = new FormData();
+                formData.append('file', file);
+                fileData['name'] = file.name;
+                fileData['size'] = file.size;
+                fileData['type'] = fileType;
+                // Make a fetch request to upload the file
+                fetch('/Directory', {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'File': JSON.stringify(fileData),
+                        'Buffer': JSON.stringify({buffer: buffArray}),
+                    },
+                })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Server response:', data);
+                })
+                .catch(error => console.error('Error:', error));
+              };
+              // Read the file as an ArrayBuffer
+              reader.readAsArrayBuffer(file);
+            }
         });
         // Fetch the JSON data from the ESP32 server
         fetch('/data.json')
@@ -159,27 +201,31 @@
                     const cellType = row.insertCell(1);
                     const cellSize = row.insertCell(2);
                     const cellActions = row.insertCell(3);
-
                     cellName.textContent = file.name;
                     cellType.textContent = file.type;
                     cellSize.textContent = file.size;
 
                     // Create download, update, and delete buttons
-                    const downloadBtn = document.createElement('button');
-                    downloadBtn.textContent = 'Download';
-                    downloadBtn.addEventListener('click', () => downloadFile(file.name));
+                    if(('.html .json .txt .xml .css .js').includes(file.type)){
+                      const downloadBtn = document.createElement('button');
+                      downloadBtn.textContent = 'Download';
+                      downloadBtn.addEventListener('click', () => downloadFile(file.name));
 
-                    const updateBtn = document.createElement('button');
-                    updateBtn.textContent = 'Update';
-                    updateBtn.addEventListener('click', () => updateFile(file.name));
+                      const updateBtn = document.createElement('button');
+                      updateBtn.textContent = 'Update';
+                      updateBtn.addEventListener('click', () => updateFile(file.name));
 
-                    const deleteBtn = document.createElement('button');
-                    deleteBtn.textContent = 'Delete';
-                    deleteBtn.addEventListener('click', () => deleteFile(file.name));
+                      const deleteBtn = document.createElement('button');
+                      deleteBtn.textContent = 'Delete';
+                      deleteBtn.addEventListener('click', () => deleteFile(file.name));
 
-                    cellActions.appendChild(downloadBtn);
-                    cellActions.appendChild(updateBtn);
-                    cellActions.appendChild(deleteBtn);
+                      cellActions.appendChild(downloadBtn);
+                      cellActions.appendChild(updateBtn);
+                      cellActions.appendChild(deleteBtn);
+                    }
+                    else{
+                      cellActions.textContent = 'Not to be Modified';
+                    }
                 });
             })
             .catch(error => console.error('Error fetching data:', error));
@@ -201,3 +247,5 @@
     </script>
 </body>
 </html>
+
+)";

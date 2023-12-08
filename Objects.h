@@ -5,3 +5,4 @@
 #include "weakWifi.h"
 #include "noBattery.h"
 #include "menu_background.h"
+#include "battery.h"

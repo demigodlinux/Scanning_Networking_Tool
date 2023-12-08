@@ -3,6 +3,9 @@
 
 #define PIN_LCD_BL                   38
 
+//#define CONFIG_BT_ENABLED            1
+#define CSN                          16
+
 #define PIN_LCD_D0                   39
 #define PIN_LCD_D1                   40
 #define PIN_LCD_D2                   41
@@ -24,10 +27,10 @@
 #define PIN_BUTTON_2                 14
 #define PIN_BAT_VOLT                 4
 
-#define PIN_IIC_SCL                  17
-#define PIN_IIC_SDA                  18
+#define SCL                          43
+#define SDA                          44
 
-#define PIN_TOUCH_INT                16
+//#define PIN_TOUCH_INT                16
 #define PIN_TOUCH_RES                21
 
 #define MISO                         13
